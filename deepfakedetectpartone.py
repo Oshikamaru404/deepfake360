@@ -22,39 +22,33 @@ app = FastAPI()
 # === Définir l'architecture du modèle Meso4 ===
 def Meso4():
     x = Input(shape=(256, 256, 3))
-
     y = Conv2D(8, (3, 3), padding='same')(x)
     y = BatchNormalization()(y)
     y = Activation('relu')(y)
     y = AveragePooling2D(pool_size=(2, 2))(y)
-
     y = Conv2D(8, (5, 5), padding='same')(y)
     y = BatchNormalization()(y)
     y = Activation('relu')(y)
     y = AveragePooling2D(pool_size=(2, 2))(y)
-
     y = Conv2D(16, (5, 5), padding='same')(y)
     y = BatchNormalization()(y)
     y = Activation('relu')(y)
     y = AveragePooling2D(pool_size=(2, 2))(y)
-
     y = Conv2D(16, (5, 5), padding='same')(y)
     y = BatchNormalization()(y)
     y = Activation('relu')(y)
     y = AveragePooling2D(pool_size=(4, 4))(y)
-
     y = Flatten()(y)
     y = Dropout(0.5)(y)
     y = Dense(16)(y)
     y = Activation('relu')(y)
     y = Dropout(0.5)(y)
     y = Dense(1, activation='sigmoid')(y)
-
     return Model(inputs=x, outputs=y)
 
 # === Charger le modèle et les poids ===
 model = Meso4()
-model.load_weights("weights/Meso4_DF.h5")
+model.load_weights("models/Meso4_DF.h5")
 
 # Face ROI Detection
 def detect_forehead_roi(frame, cascade):
@@ -322,7 +316,7 @@ async def analyze_video(file: UploadFile = File(...)):
         # DeepFake detection using Meso4 model
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
-            return JSONResponse(status_code=400, content={"message": "Impossible d'ouvrir la vidéo."})
+            return JSONResponse(status_code=400, content={"message": "Unable to open the video."})
 
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         num_samples = 10  # Number of frames to test
