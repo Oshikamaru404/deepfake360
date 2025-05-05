@@ -1,6 +1,9 @@
 # Utilise une image Python officielle
 FROM python:3.9-slim
 
+# Mettre à jour les packages et installer CMake
+RUN apt-get update && apt-get install -y cmake
+
 # Définir le répertoire de travail
 WORKDIR /app
 
@@ -8,7 +11,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Installer les dépendances Python
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copier le reste des fichiers de l'application
 COPY . .
