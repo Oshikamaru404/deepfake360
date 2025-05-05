@@ -54,7 +54,7 @@ def Meso4():
 
 # === Charger le modèle et les poids ===
 model = Meso4()
-model.load_weights("C:/Users/travail/Downloads/MesoNet-master/MesoNet-master/weights/Meso4_DF.h5")
+model.load_weights("weights/Meso4_DF.h5")
 
 # Face ROI Detection
 def detect_forehead_roi(frame, cascade):
@@ -287,7 +287,7 @@ async def analyze_video(file: UploadFile = File(...)):
         # Load the cascade classifier
         cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         detector = dlib.get_frontal_face_detector()
-        predictor = dlib.shape_predictor("C:/Users/travail/Downloads/Compressed/dataEAR/shape_predictor_68_face_landmarks.dat")
+        predictor = dlib.shape_predictor("models/shape_predictor_68_face_landmarks.dat")
 
         # Extract signals
         signals, fps, face_data = extract_signal(video_path, cascade)
@@ -327,7 +327,6 @@ async def analyze_video(file: UploadFile = File(...)):
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         num_samples = 10  # Number of frames to test
         step = frame_count // num_samples
-
         predictions = []
         probably_fake = False
 
