@@ -1,3 +1,14 @@
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y \
+    build-essential \
+    cmake \
+    libopenblas-dev \
+    liblapack-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Then install your Python packages
+RUN pip install dlib
 # Utilise une image Python officielle
 FROM python:3.9-slim
 
