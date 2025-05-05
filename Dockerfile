@@ -1,3 +1,5 @@
+FROM python:3.9-slim
+
 # Install system dependencies
 RUN apt-get update && \
     apt-get install -y \
@@ -5,30 +7,18 @@ RUN apt-get update && \
     cmake \
     libopenblas-dev \
     liblapack-dev \
+    libx11-dev \
+    libgtk-3-dev \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Then install your Python packages
-RUN pip install dlib
-# Utilise une image Python officielle
-FROM python:3.9-slim
-
-# Mettre à jour les packages et installer CMake
-RUN apt-get update && apt-get install -y cmake
-
-# Définir le répertoire de travail
 WORKDIR /app
 
-# Copier le fichier requirements.txt dans le conteneur
+# Copy requirements first to leverage Docker cache
 COPY requirements.txt .
-
-# Installer les dépendances Python
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copier le reste des fichiers de l'application
+# Copy the rest of the application
 COPY . .
 
-# Exposer le port sur lequel l'application va tourner (ajuste en fonction de ton app)
-EXPOSE 5000
-
-# Commande pour démarrer l'application
-CMD ["python", "app.py"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
