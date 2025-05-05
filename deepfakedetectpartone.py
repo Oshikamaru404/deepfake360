@@ -1,3 +1,5 @@
+from fastapi import FastAPI, File, UploadFile
+from fastapi.responses import JSONResponse
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -13,6 +15,9 @@ from tensorflow.keras.layers import Input, Conv2D, BatchNormalization, Activatio
 import librosa
 import soundfile as sf
 import os
+import tempfile
+
+app = FastAPI()
 
 # === Définir l'architecture du modèle Meso4 ===
 def Meso4():
@@ -100,10 +105,7 @@ def estimate_hrv(signal, fs):
 
 # Voice Resonance Verifier
 def extract_audio(video_path):
-    command = f'ffmpeg -i {video_path} -q:a 0 -map a temp_audio.wav -y'
-    os.system(command)
-    y, sr = librosa.load('temp_audio.wav', sr=None)
-    os.remove('temp_audio.wav')
+    y, sr = librosa.load(video_path, sr=None)
     return y, sr
 
 def analyze_voice_resonance(y, sr):
@@ -271,115 +273,112 @@ def generate_report(video_path, deepfake_score, bpm, hrv, ear_mean, lap_var, ent
     with open("deepfake_report.txt", "w") as f:
         f.write(report)
 
-# Main
-def main(video_path=None):
-    use_webcam = video_path is None
-    cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-    detector = dlib.get_frontal_face_detector()
-    predictor = dlib.shape_predictor("C:/Users/travail/Downloads/Compressed/dataEAR/shape_predictor_68_face_landmarks.dat")
+    return report
 
-    signals, fps, face_data = extract_signal(video_path, cascade, use_webcam)
+@app.post("/analyze/")
+async def analyze_video(file: UploadFile = File(...)):
+    try:
+        # Save the uploaded file temporarily
+        temp_dir = tempfile.mkdtemp()
+        video_path = os.path.join(temp_dir, file.filename)
+        with open(video_path, "wb") as f:
+            f.write(await file.read())
 
-    if len(signals) < fps * 5:
-        print("⛔ Not enough signal. Try a longer video or better lighting.")
-        return
+        # Load the cascade classifier
+        cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        detector = dlib.get_frontal_face_detector()
+        predictor = dlib.shape_predictor("C:/Users/travail/Downloads/Compressed/dataEAR/shape_predictor_68_face_landmarks.dat")
 
-    green = signals[:, 1]
-    green = np.nan_to_num((green - np.mean(green)) / np.std(green))
-    green = smooth_signal(green)
-    filtered = bandpass_filter(green, 0.7, 4.0, fps)
+        # Extract signals
+        signals, fps, face_data = extract_signal(video_path, cascade)
 
-    bpm, freqs, power = estimate_heart_rate(filtered, fps)
-    hrv = estimate_hrv(filtered, fps)
-    signal_quality = np.max(power) / np.sum(power) if len(power) > 0 else 0
+        if len(signals) < fps * 5:
+            return JSONResponse(status_code=400, content={"message": "Not enough signal. Try a longer video or better lighting."})
 
-    ear_values = []
-    for frame_img, _ in tqdm(face_data, desc="Extracting EAR signal"):
-        gray_frame = cv2.cvtColor(frame_img, cv2.COLOR_BGR2GRAY)
-        faces = detector(gray_frame)
-        if len(faces) > 0:
-            landmarks = predictor(gray_frame, faces[0])
-            ear = detect_ear(np.array([[p.x, p.y] for p in landmarks.parts()]))
-            ear_values.append(ear)
+        green = signals[:, 1]
+        green = np.nan_to_num((green - np.mean(green)) / np.std(green))
+        green = smooth_signal(green)
+        filtered = bandpass_filter(green, 0.7, 4.0, fps)
 
-    ear_mean = np.mean(ear_values) if ear_values else 0
+        bpm, freqs, power = estimate_heart_rate(filtered, fps)
+        hrv = estimate_hrv(filtered, fps)
+        signal_quality = np.max(power) / np.sum(power) if len(power) > 0 else 0
 
-    # Texture
-    sample_frame = face_data[len(face_data)//2][0]
-    lap_var, entropy_score, entropy_heatmap = generate_texture_heatmap(sample_frame)
+        ear_values = []
+        for frame_img, _ in tqdm(face_data, desc="Extracting EAR signal"):
+            gray_frame = cv2.cvtColor(frame_img, cv2.COLOR_BGR2GRAY)
+            faces = detector(gray_frame)
+            if len(faces) > 0:
+                landmarks = predictor(gray_frame, faces[0])
+                ear = detect_ear(np.array([[p.x, p.y] for p in landmarks.parts()]))
+                ear_values.append(ear)
 
-    # DeepFake detection using Meso4 model
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        print("❌ Impossible d'ouvrir la vidéo.")
-        return
+        ear_mean = np.mean(ear_values) if ear_values else 0
 
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    num_samples = 10  # Nombre de frames à tester
-    step = frame_count // num_samples
+        # Texture
+        sample_frame = face_data[len(face_data)//2][0]
+        lap_var, entropy_score, entropy_heatmap = generate_texture_heatmap(sample_frame)
 
-    predictions = []
-    probably_fake = False
+        # DeepFake detection using Meso4 model
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            return JSONResponse(status_code=400, content={"message": "Impossible d'ouvrir la vidéo."})
 
-    for i in range(num_samples):
-        frame_number = i * step
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
-        ret, frame = cap.read()
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        num_samples = 10  # Number of frames to test
+        step = frame_count // num_samples
 
-        if not ret:
-            print(f"⚠️ Frame {frame_number} introuvable.")
-            continue
+        predictions = []
+        probably_fake = False
 
-        img = cv2.resize(frame, (256, 256))
-        img = img.astype('float32') / 255.
-        img = np.expand_dims(img, axis=0)
+        for i in range(num_samples):
+            frame_number = i * step
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+            ret, frame = cap.read()
 
-        prediction = model.predict(img)[0][0]
-        predictions.append(prediction)
-        print(f"Frame {frame_number} → Probabilité DeepFake : {prediction:.2f}")
+            if not ret:
+                continue
 
-        # Check if the prediction exceeds the threshold
-        if prediction > 0.5:
-            probably_fake = True
-            print(f"⚠️ Frame {frame_number} → Probablement Fake (Probabilité : {prediction:.2f})")
-            break
+            img = cv2.resize(frame, (256, 256))
+            img = img.astype('float32') / 255.
+            img = np.expand_dims(img, axis=0)
 
-    cap.release()
+            prediction = model.predict(img)[0][0]
+            predictions.append(prediction)
 
-    gan_score = np.mean(predictions) if predictions else 0
+            # Check if the prediction exceeds the threshold
+            if prediction > 0.5:
+                probably_fake = True
+                break
 
-    # Voice Resonance Verifier
-    y, sr = extract_audio(video_path)
-    mfccs_mean = analyze_voice_resonance(y, sr)
+        cap.release()
 
-    # Calculate voice score based on MFCC features
-    voice_score = np.mean(mfccs_mean) / 100  # Normalize the score
+        gan_score = np.mean(predictions) if predictions else 0
 
-    deepfake_score = estimate_deepfake_score(
-        bpm, hrv, signal_quality, ear_mean,
-        lap_var=lap_var,
-        heatmap_entropy_score=entropy_score,
-        gan_score=gan_score,
-        voice_score=voice_score
-    )
+        # Voice Resonance Verifier
+        y, sr = extract_audio(video_path)
+        mfccs_mean = analyze_voice_resonance(y, sr)
 
-    print(f"💓 BPM: {bpm:.2f} | HRV: {hrv:.2f} ms | EAR Mean: {ear_mean:.2f} | LapVar: {lap_var:.1f} | Entropy: {entropy_score:.2f}")
-    print(f"🧠 Deepfake Probability: {deepfake_score*100:.1f}%")
+        # Calculate voice score based on MFCC features
+        voice_score = np.mean(mfccs_mean) / 100  # Normalize the score
 
-    plot_results(filtered, freqs, power, bpm, deepfake_score, hrv, ear_values, entropy_heatmap, lap_var)
+        deepfake_score = estimate_deepfake_score(
+            bpm, hrv, signal_quality, ear_mean,
+            lap_var=lap_var,
+            heatmap_entropy_score=entropy_score,
+            gan_score=gan_score,
+            voice_score=voice_score
+        )
 
-    # Generate report if DeepFake probability is greater than 51%
-    if deepfake_score > 0.51:
-        generate_report(video_path, deepfake_score, bpm, hrv, ear_mean, lap_var, entropy_score, gan_score, voice_score)
-    if deepfake_score > 0.51:
-        print(f"Probably FAKE: 🔴")
-    else:
-        print(f"Probably REAL: 🟢")
-# Run
+        # Generate report
+        report = generate_report(video_path, deepfake_score, bpm, hrv, ear_mean, lap_var, entropy_score, gan_score, voice_score)
+
+        # Return the report as JSON response
+        return JSONResponse(content={"report": report})
+
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"message": str(e)})
+
 if __name__ == "__main__":
-    import sys
-    import os
-    path = "C:/Users/travail/Downloads/Documents/elon.mp4"
-    if len(sys.argv) > 1:
-        path = sys.argv[1]
-    main(path)
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
