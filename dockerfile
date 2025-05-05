@@ -1,21 +1,20 @@
-# Étape 1: Utilisation d'une image Python de base
-FROM python:3.12-slim
+# Utilise une image Python officielle
+FROM python:3.9-slim
 
-# Étape 2: Installation des dépendances système
-# On met à jour les paquets et on installe cmake et autres dépendances nécessaires
-RUN apt-get update && \
-    apt-get install -y cmake build-essential libboost-all-dev python3-dev && \
-    rm -rf /var/lib/apt/lists/*
-
-# Étape 3: Définition du répertoire de travail
+# Définir le répertoire de travail
 WORKDIR /app
 
-# Étape 4: Copier tous les fichiers du projet dans le conteneur
-COPY . /app
+# Copier le fichier requirements.txt dans le conteneur
+COPY requirements.txt .
 
-# Étape 5: Installation de pip et des dépendances Python depuis requirements.txt
-RUN pip install --upgrade pip
+# Installer les dépendances Python
 RUN pip install -r requirements.txt
 
-# Étape 6: Définition de la commande à exécuter lorsque le conteneur démarre
-CMD ["python", "main.py"]
+# Copier le reste des fichiers de l'application
+COPY . .
+
+# Exposer le port sur lequel l'application va tourner (ajuste en fonction de ton app)
+EXPOSE 5000
+
+# Commande pour démarrer l'application
+CMD ["python", "app.py"]
