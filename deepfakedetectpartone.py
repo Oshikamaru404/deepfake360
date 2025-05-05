@@ -48,7 +48,7 @@ def Meso4():
 
 # === Charger le modèle et les poids ===
 model = Meso4()
-model.load_weights("models/Meso4_DF.h5")
+model.load_weights("weights/Meso4_DF.h5")
 
 # Face ROI Detection
 def detect_forehead_roi(frame, cascade):
